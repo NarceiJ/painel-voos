@@ -21,7 +21,7 @@
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             width: 100%;
-            max-width: 650px;
+            max-width: 700px;
         }
         h2, h3 { color: #333; margin-top: 0; }
         .form-group {
@@ -66,11 +66,13 @@
             width: 100%;
             border-collapse: collapse;
             margin-top: 15px;
+            margin-bottom: 25px;
         }
         th, td {
-            padding: 12px;
+            padding: 10px;
             border-bottom: 1px solid #ddd;
             text-align: left;
+            font-size: 14px;
         }
         th { background-color: #f8f9fa; }
         .hidden { display: none !important; }
@@ -94,7 +96,7 @@
 <body>
 
 <div class="card">
-    <!-- SECÇÃO DE LOGIN -->
+    <!-- LOGIN -->
     <div id="login-section">
         <h2>Entrar no Painel</h2>
         <div id="login-error" class="error-msg"></div>
@@ -109,7 +111,7 @@
         </form>
     </div>
 
-    <!-- SECÇÃO DO PAINEL -->
+    <!-- PAINEL -->
     <div id="dashboard-section" class="hidden">
         <div class="header-bar">
             <div>
@@ -119,26 +121,41 @@
             <button class="btn-logout" onclick="fazerLogout()">Sair</button>
         </div>
         
-        <!-- PAINEL EXCLUSIVO DO ADMIN PARA CRIAR CLIENTES -->
+        <!-- PAINEL ADMIN -->
         <div id="admin-panel" class="admin-box hidden">
-            <h3>Painel Admin: Criar Conta de Cliente</h3>
+            <h3>Gerir Clientes</h3>
             <div id="admin-error" class="error-msg"></div>
             <div id="admin-success" class="success-msg"></div>
+            
             <form id="form-criar-cliente">
                 <div style="display: flex; gap: 10px;">
                     <div style="flex: 1;">
                         <label>Nome do Cliente:</label>
-                        <input type="text" id="new-client-user" required placeholder="Ex: cliente1">
+                        <input type="text" id="new-client-user" required placeholder="Ex: narcei">
                     </div>
                     <div style="flex: 1;">
                         <label>Palavra-passe:</label>
                         <input type="text" id="new-client-pass" required placeholder="Ex: senha123">
                     </div>
                 </div>
-                <label>Limite de Rotas Permitidas:</label>
+                <label>Limite de Rotas:</label>
                 <input type="number" id="new-client-limit" required value="3" min="1" max="50">
-                <button type="submit" style="background-color: #28a745;">Criar Conta para Cliente</button>
+                <button type="submit" style="background-color: #28a745;">Criar Conta de Cliente</button>
             </form>
+
+            <h4 style="margin-top: 20px; margin-bottom: 5px;">Clientes Cadastrados:</h4>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Utilizador</th>
+                        <th>Limite de Rotas</th>
+                        <th>Criado em</th>
+                    </tr>
+                </thead>
+                <tbody id="lista-clientes-body">
+                    <!-- Preenchido via JS -->
+                </tbody>
+            </table>
         </div>
 
         <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 20px;">
@@ -148,7 +165,6 @@
             <span id="contador-rotas" style="font-size: 13px; color: #555; font-weight: bold;"></span>
         </div>
         
-        <!-- Formulário para adicionar rota -->
         <form id="form-rota" class="form-group">
             <input type="text" id="origem" class="input-rota" placeholder="Origem (GRU)" required maxlength="4">
             <input type="text" id="destino" class="input-rota" placeholder="Destino (MCZ)" required maxlength="4">
@@ -165,9 +181,7 @@
                     <th>Ações</th>
                 </tr>
             </thead>
-            <tbody id="lista-rotas-body">
-                <!-- Preenchido via JavaScript -->
-            </tbody>
+            <tbody id="lista-rotas-body"></tbody>
         </table>
     </div>
 </div>
@@ -185,6 +199,7 @@ async function verificarSessao() {
 
             if (dados.username === 'admin') {
                 document.getElementById('admin-panel').classList.remove('hidden');
+                carregarClientes();
             } else {
                 document.getElementById('admin-panel').classList.add('hidden');
             }
@@ -220,10 +235,36 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
             erroDiv.innerText = resultado.error || 'Credenciais inválidas';
         }
     } catch (erro) {
-        console.error('Erro no login:', erro);
         erroDiv.innerText = 'Erro ao tentar efetuar login.';
     }
 });
+
+async function carregarClientes() {
+    try {
+        const resposta = await fetch('/api/admin/clientes');
+        if (!resposta.ok) return;
+        const clientes = await resposta.json();
+        const tbody = document.getElementById('lista-clientes-body');
+        tbody.innerHTML = '';
+
+        if (clientes.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #777;">Nenhum cliente cadastrado.</td></tr>';
+            return;
+        }
+
+        clientes.forEach(c => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${c.username}</strong></td>
+                <td>${c.limite_rotas} rotas</td>
+                <td>${c.created_at ? c.created_at.split('T')[0] : '-'}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch (erro) {
+        console.error('Erro ao carregar clientes:', erro);
+    }
+}
 
 document.getElementById('form-criar-cliente').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -245,32 +286,26 @@ document.getElementById('form-criar-cliente').addEventListener('submit', async (
         const resultado = await resposta.json();
 
         if (resposta.ok) {
-            sucessoDiv.innerText = `Cliente "${username}" criado com sucesso (${limite_rotas} rotas permitidas)!`;
+            sucessoDiv.innerText = `Cliente "${username}" criado com sucesso!`;
             document.getElementById('form-criar-cliente').reset();
             document.getElementById('new-client-limit').value = "3";
+            carregarClientes();
         } else {
             erroDiv.innerText = resultado.error || 'Erro ao criar cliente';
         }
     } catch (erro) {
-        console.error('Erro:', erro);
-        erroDiv.innerText = 'Erro de conexão ao criar cliente.';
+        erroDiv.innerText = 'Erro de conexão.';
     }
 });
 
 async function fazerLogout() {
-    try {
-        await fetch('/api/logout', { method: 'POST' });
-        verificarSessao();
-    } catch (erro) {
-        console.error('Erro ao terminar sessão:', erro);
-    }
+    await fetch('/api/logout', { method: 'POST' });
+    verificarSessao();
 }
 
 async function carregarRotas() {
     try {
         const resposta = await fetch('/api/rotas');
-        if (!resposta.ok) throw new Error('Erro ao carregar rotas');
-        
         const rotas = await resposta.json();
         const tbody = document.getElementById('lista-rotas-body');
         tbody.innerHTML = '';
@@ -305,39 +340,25 @@ document.getElementById('form-rota').addEventListener('submit', async (e) => {
     const destino = document.getElementById('destino').value.trim();
     const data_voo = document.getElementById('data_voo').value;
 
-    try {
-        const resposta = await fetch('/api/rotas', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ origem, destino, data_voo: data_voo || null })
-        });
+    const resposta = await fetch('/api/rotas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ origem, destino, data_voo: data_voo || null })
+    });
 
-        const resultado = await resposta.json();
-        if (resposta.ok) {
-            document.getElementById('form-rota').reset();
-            carregarRotas();
-        } else {
-            alert(resultado.error || 'Erro ao adicionar rota');
-        }
-    } catch (erro) {
-        console.error('Erro:', erro);
-        alert('Erro ao guardar a rota.');
+    const resultado = await resposta.json();
+    if (resposta.ok) {
+        document.getElementById('form-rota').reset();
+        carregarRotas();
+    } else {
+        alert(resultado.error || 'Erro ao adicionar rota');
     }
 });
 
 async function removerRota(id) {
     if (!confirm('Deseja realmente remover esta rota?')) return;
-
-    try {
-        const resposta = await fetch(`/api/rotas/${id}`, { method: 'DELETE' });
-        if (resposta.ok) {
-            carregarRotas();
-        } else {
-            alert('Erro ao apagar rota');
-        }
-    } catch (erro) {
-        console.error('Erro:', erro);
-    }
+    const resposta = await fetch(`/api/rotas/${id}`, { method: 'DELETE' });
+    if (resposta.ok) carregarRotas();
 }
 
 document.addEventListener('DOMContentLoaded', verificarSessao);
