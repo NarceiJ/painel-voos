@@ -3,23 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel de Voos - Minhas Rotas</title>
+    <title>Painel de Voos</title>
     <style>
         body {
             font-family: Arial, sans-serif;
             background-color: #f4f6f9;
             margin: 0;
             padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
         }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
+        .card {
             background: white;
-            padding: 25px;
+            padding: 30px;
             border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 600px;
         }
-        h2, h3 { color: #333; }
+        h2, h3 { color: #333; margin-top: 0; }
         .form-group {
             display: flex;
             gap: 10px;
@@ -31,8 +35,15 @@
             border: 1px solid #ccc;
             border-radius: 4px;
             font-size: 14px;
+            width: 100%;
+            box-sizing: border-box;
+            margin-bottom: 15px;
         }
-        input[type="text"] { text-transform: uppercase; width: 130px; }
+        input.input-rota {
+            text-transform: uppercase;
+            width: 140px;
+            margin-bottom: 0;
+        }
         button {
             padding: 10px 18px;
             background-color: #007bff;
@@ -43,6 +54,12 @@
             font-weight: bold;
         }
         button:hover { background-color: #0056b3; }
+        .btn-delete {
+            background-color: #dc3545;
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+        .btn-delete:hover { background-color: #a71d2a; }
         table {
             width: 100%;
             border-collapse: collapse;
@@ -54,47 +71,136 @@
             text-align: left;
         }
         th { background-color: #f8f9fa; }
-        .btn-delete {
-            background-color: #dc3545;
+        .hidden { display: none !important; }
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .btn-logout {
+            background-color: #6c757d;
             padding: 6px 12px;
             font-size: 12px;
         }
-        .btn-delete:hover { background-color: #a71d2a; }
+        .btn-logout:hover { background-color: #5a6268; }
+        .error-msg { color: #dc3545; font-size: 14px; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h2>Painel de Monitoramento de Voos</h2>
-    <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 20px;">
+<div class="card">
+    <!-- SECÇÃO DE LOGIN -->
+    <div id="login-section">
+        <h2>Entrar no Painel</h2>
+        <div id="login-error" class="error-msg"></div>
+        <form id="form-login">
+            <label>Utilizador:</label>
+            <input type="text" id="username" required placeholder="Ex: admin">
+            
+            <label>Palavra-passe:</label>
+            <input type="password" id="password" required placeholder="Ex: admin123">
+            
+            <button type="submit" style="width: 100%;">Entrar</button>
+        </form>
+    </div>
 
-    <h3>Minhas Rotas Cadastradas</h3>
-    
-    <!-- Formulário para adicionar rota -->
-    <form id="form-rota" class="form-group">
-        <input type="text" id="origem" placeholder="Origem (ex: GRU)" required maxlength="4">
-        <input type="text" id="destino" placeholder="Destino (ex: MCZ)" required maxlength="4">
-        <input type="date" id="data_voo">
-        <button type="submit">Adicionar Rota</button>
-    </form>
+    <!-- SECÇÃO DO PAINEL DE ROTAS (Oculto por predefinição) -->
+    <div id="dashboard-section" class="hidden">
+        <div class="header-bar">
+            <div>
+                <h2>Painel de Voos</h2>
+                <span id="user-display" style="color: #666; font-size: 14px;"></span>
+            </div>
+            <button class="btn-logout" onclick="fazerLogout()">Sair</button>
+        </div>
+        
+        <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 20px;">
 
-    <!-- Tabela de rotas -->
-    <table>
-        <thead>
-            <tr>
-                <th>Origem</th>
-                <th>Destino</th>
-                <th>Data do Voo</th>
-                <th>Ações</th>
-            </tr>
-        </thead>
-        <tbody id="lista-rotas-body">
-            <!-- Dados injetados via JS -->
-        </tbody>
-    </table>
+        <h3>Minhas Rotas Cadastradas</h3>
+        
+        <form id="form-rota" class="form-group">
+            <input type="text" id="origem" class="input-rota" placeholder="Origem (GRU)" required maxlength="4">
+            <input type="text" id="destino" class="input-rota" placeholder="Destino (MCZ)" required maxlength="4">
+            <input type="date" id="data_voo" style="flex: 1; min-width: 130px; margin-bottom: 0;">
+            <button type="submit">Adicionar</button>
+        </form>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Origem</th>
+                    <th>Destino</th>
+                    <th>Data do Voo</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody id="lista-rotas-body">
+                <!-- Preenchido via JavaScript -->
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <script>
+// Verificar sessão ao carregar a página
+async function verificarSessao() {
+    try {
+        const resposta = await fetch('/api/session');
+        const dados = await resposta.json();
+        
+        if (dados.loggedIn) {
+            document.getElementById('login-section').classList.add('hidden');
+            document.getElementById('dashboard-section').classList.remove('hidden');
+            document.getElementById('user-display').innerText = `Utilizador: ${dados.username}`;
+            carregarRotas();
+        } else {
+            document.getElementById('login-section').classList.remove('hidden');
+            document.getElementById('dashboard-section').classList.add('hidden');
+        }
+    } catch (erro) {
+        console.error('Erro ao verificar sessão:', erro);
+    }
+}
+
+// Ação de Login
+document.getElementById('form-login').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value.trim();
+    const erroDiv = document.getElementById('login-error');
+    erroDiv.innerText = '';
+
+    try {
+        const resposta = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        const resultado = await resposta.json();
+
+        if (resposta.ok) {
+            verificarSessao();
+        } else {
+            erroDiv.innerText = resultado.error || 'Credenciais inválidas';
+        }
+    } catch (erro) {
+        console.error('Erro no login:', erro);
+        erroDiv.innerText = 'Erro ao tentar efetuar login.';
+    }
+});
+
+// Ação de Logout
+async function fazerLogout() {
+    try {
+        await fetch('/api/logout', { method: 'POST' });
+        verificarSessao();
+    } catch (erro) {
+        console.error('Erro ao terminar sessão:', erro);
+    }
+}
+
+// Carregar Rotas
 async function carregarRotas() {
     try {
         const resposta = await fetch('/api/rotas');
@@ -105,7 +211,7 @@ async function carregarRotas() {
         tbody.innerHTML = '';
 
         if (rotas.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #777;">Nenhuma rota cadastrada no momento.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #777;">Nenhuma rota cadastrada.</td></tr>';
             return;
         }
 
@@ -126,9 +232,9 @@ async function carregarRotas() {
     }
 }
 
+// Adicionar Rota
 document.getElementById('form-rota').addEventListener('submit', async (e) => {
     e.preventDefault();
-    
     const origem = document.getElementById('origem').value.trim();
     const destino = document.getElementById('destino').value.trim();
     const data_voo = document.getElementById('data_voo').value;
@@ -153,6 +259,7 @@ document.getElementById('form-rota').addEventListener('submit', async (e) => {
     }
 });
 
+// Remover Rota
 async function removerRota(id) {
     if (!confirm('Deseja realmente remover esta rota?')) return;
 
@@ -168,7 +275,8 @@ async function removerRota(id) {
     }
 }
 
-document.addEventListener('DOMContentLoaded', carregarRotas);
+// Executar verificação ao carregar a página
+document.addEventListener('DOMContentLoaded', verificarSessao);
 </script>
 
 </body>
