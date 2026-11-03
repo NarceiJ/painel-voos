@@ -16,16 +16,20 @@ async function iniciarBaseDados() {
         await pool.query('SELECT NOW()');
         console.log('Conectado à base de dados PostgreSQL com sucesso.');
 
+        // Criar tabela de utilizadores básica se não existir
         await pool.query(`
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
                 username VARCHAR(50) UNIQUE NOT NULL,
-                password VARCHAR(255) NOT NULL,
-                limite_rotas INT DEFAULT 2,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                password VARCHAR(255) NOT NULL
             )
         `);
 
+        // Garantir que as colunas novas existem em tabelas já criadas anteriormente
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS limite_rotas INT DEFAULT 2`);
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
+
+        // Criar tabela de rotas
         await pool.query(`
             CREATE TABLE IF NOT EXISTS rotas (
                 id SERIAL PRIMARY KEY,
@@ -37,6 +41,7 @@ async function iniciarBaseDados() {
             )
         `);
 
+        // Criar utilizador admin padrão se não existir
         const userCheck = await pool.query('SELECT * FROM users WHERE username = $1', ['admin']);
         if (userCheck.rows.length === 0) {
             await pool.query('INSERT INTO users (username, password, limite_rotas) VALUES ($1, $2, $3)', ['admin', 'admin123', 50]);
@@ -127,7 +132,6 @@ app.post('/api/admin/criar-cliente', async (req, res) => {
     }
 });
 
-// Listar todos os clientes para o painel do Admin
 app.get('/api/admin/clientes', async (req, res) => {
     if (!req.session.userId) return res.status(401).json({ error: 'Não autorizado' });
 
