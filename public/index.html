@@ -242,9 +242,14 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
 async function carregarClientes() {
     try {
         const resposta = await fetch('/api/admin/clientes');
-        if (!resposta.ok) return;
-        const clientes = await resposta.json();
         const tbody = document.getElementById('lista-clientes-body');
+        
+        if (!resposta.ok) {
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #dc3545;">Erro ao carregar clientes.</td></tr>';
+            return;
+        }
+
+        const clientes = await resposta.json();
         tbody.innerHTML = '';
 
         if (clientes.length === 0) {
@@ -289,7 +294,7 @@ document.getElementById('form-criar-cliente').addEventListener('submit', async (
             sucessoDiv.innerText = `Cliente "${username}" criado com sucesso!`;
             document.getElementById('form-criar-cliente').reset();
             document.getElementById('new-client-limit').value = "3";
-            carregarClientes(); // <-- Atualiza a tabela na hora!
+            carregarClientes();
         } else {
             erroDiv.innerText = resultado.error || 'Erro ao criar cliente';
         }
