@@ -1,5 +1,5 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
 const session = require('express-session');
 
@@ -14,43 +14,61 @@ app.use(session({
     saveUninitialized: false
 }));
 
-// Configuração da Base de Dados SQLite
-const db = new sqlite3.Database('./database.db', (err) => {
+// Configuração da Base de Dados PostgreSQL (Supabase)
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+        rejectUnauthorized: false // Necessário para conexões externas com o Supabase
+    }
+});
+
+pool.connect((err, client, release) => {
     if (err) {
-        console.error('Erro ao abrir a base de dados', err.message);
+        console.error('Erro ao conectar à base de dados PostgreSQL', err.stack);
     } else {
-        console.log('Conectado à base de dados SQLite.');
+        console.log('Conectado à base de dados PostgreSQL com sucesso.');
+        release();
         criarTabelas();
     }
 });
 
-function criarTabelas() {
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE,
-        password TEXT,
-        role TEXT DEFAULT 'client'
-    )`, () => {
-        db.get(`SELECT * FROM users WHERE username = 'admin'`, async (err, row) => {
-            if (!row) {
-                const hashedPassword = await bcrypt.hash('admin123', 10);
-                db.run(`INSERT INTO users (username, password, role) VALUES ('admin', ?, 'admin')`, [hashedPassword]);
-                console.log('Utilizador admin criado (user: admin / pass: admin123)');
-            }
-        });
-    });
+async function criarTabelas() {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL,
+                role TEXT DEFAULT 'client'
+            )
+        `);
 
-    db.run(`CREATE TABLE IF NOT EXISTS flight_configs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        origin TEXT,
-        destination TEXT,
-        departure_date TEXT,
-        max_stops TEXT,
-        currency TEXT,
-        telegram_chat_id TEXT,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    )`);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS flight_configs (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                origin TEXT,
+                destination TEXT,
+                departure_date TEXT,
+                max_stops TEXT,
+                currency TEXT,
+                telegram_chat_id TEXT
+            )
+        `);
+
+        // Criar utilizador admin padrão se não existir
+        const adminCheck = await pool.query(`SELECT * FROM users WHERE username = 'admin'`);
+        if (adminCheck.rows.length === 0) {
+            const hashedPassword = await bcrypt.hash('admin123', 10);
+            await pool.query(
+                `INSERT INTO users (username, password, role) VALUES ($1, $2, $3)`,
+                ['admin', hashedPassword, 'admin']
+            );
+            console.log('Utilizador admin criado (user: admin / pass: admin123)');
+        }
+    } catch (err) {
+        console.error('Erro ao criar tabelas:', err);
+    }
 }
 
 // --- ROTAS DO PAINEL WEB ---
@@ -70,9 +88,12 @@ app.get('/login', (req, res) => {
     `);
 });
 
-app.post('/login', (req, res) => {
+app.post('/login', async (req, res) => {
     const { username, password } = req.body;
-    db.get(`SELECT * FROM users WHERE username = ?`, [username], async (err, user) => {
+    try {
+        const result = await pool.query(`SELECT * FROM users WHERE username = $1`, [username]);
+        const user = result.rows[0];
+
         if (user && await bcrypt.compare(password, user.password)) {
             req.session.user = user;
             if (user.role === 'admin') {
@@ -83,14 +104,20 @@ app.post('/login', (req, res) => {
         } else {
             res.send('Utilizador ou palavra-passe incorretos. <a href="/login">Voltar</a>');
         }
-    });
+    } catch (err) {
+        console.error(err);
+        res.send('Erro no servidor. <a href="/login">Voltar</a>');
+    }
 });
 
-app.get('/dashboard', (req, res) => {
+app.get('/dashboard', async (req, res) => {
     if (!req.session.user) return res.redirect('/login');
     
     const userId = req.session.user.id;
-    db.get(`SELECT * FROM flight_configs WHERE user_id = ?`, [userId], (err, config) => {
+    try {
+        const result = await pool.query(`SELECT * FROM flight_configs WHERE user_id = $1`, [userId]);
+        const config = result.rows[0];
+
         res.send(`
             <h2>Painel do Cliente - Configurar Alerta de Voo</h2>
             <form action="/update-config" method="POST">
@@ -116,34 +143,46 @@ app.get('/dashboard', (req, res) => {
             </form>
             <br><a href="/logout">Terminar Sessão</a>
         `);
-    });
+    } catch (err) {
+        console.error(err);
+        res.send('Erro ao carregar dashboard.');
+    }
 });
 
-app.post('/update-config', (req, res) => {
+app.post('/update-config', async (req, res) => {
     if (!req.session.user) return res.redirect('/login');
     const userId = req.session.user.id;
     const { origin, destination, departure_date, max_stops, telegram_chat_id } = req.body;
 
-    db.get(`SELECT * FROM flight_configs WHERE user_id = ?`, [userId], (err, row) => {
-        if (row) {
-            db.run(`UPDATE flight_configs SET origin = ?, destination = ?, departure_date = ?, max_stops = ?, telegram_chat_id = ? WHERE user_id = ?`,
-                [origin, destination, departure_date, max_stops, telegram_chat_id, userId], () => {
-                    res.redirect('/dashboard');
-                });
+    try {
+        const check = await pool.query(`SELECT * FROM flight_configs WHERE user_id = $1`, [userId]);
+        
+        if (check.rows.length > 0) {
+            await pool.query(
+                `UPDATE flight_configs SET origin = $1, destination = $2, departure_date = $3, max_stops = $4, telegram_chat_id = $5 WHERE user_id = $6`,
+                [origin, destination, departure_date, max_stops, telegram_chat_id, userId]
+            );
         } else {
-            db.run(`INSERT INTO flight_configs (user_id, origin, destination, departure_date, max_stops, currency, telegram_chat_id) VALUES (?, ?, ?, ?, ?, 'BRL', ?)`,
-                [userId, origin, destination, departure_date, max_stops, telegram_chat_id], () => {
-                    res.redirect('/dashboard');
-                });
+            await pool.query(
+                `INSERT INTO flight_configs (user_id, origin, destination, departure_date, max_stops, currency, telegram_chat_id) VALUES ($1, $2, $3, $4, $5, 'BRL', $6)`,
+                [userId, origin, destination, departure_date, max_stops, telegram_chat_id]
+            );
         }
-    });
+        res.redirect('/dashboard');
+    } catch (err) {
+        console.error(err);
+        res.send('Erro ao atualizar configurações.');
+    }
 });
 
-app.get('/admin', (req, res) => {
+app.get('/admin', async (req, res) => {
     if (!req.session.user || req.session.user.role !== 'admin') return res.redirect('/login');
 
-    db.all(`SELECT users.id, users.username, flight_configs.origin, flight_configs.destination, flight_configs.departure_date 
-            FROM users LEFT JOIN flight_configs ON users.id = flight_configs.user_id WHERE users.role = 'client'`, (err, rows) => {
+    try {
+        const result = await pool.query(`
+            SELECT users.id, users.username, flight_configs.origin, flight_configs.destination, flight_configs.departure_date 
+            FROM users LEFT JOIN flight_configs ON users.id = flight_configs.user_id WHERE users.role = 'client'
+        `);
         
         let html = `<h2>Painel Administrativo</h2>`;
         html += `<h3>Criar Novo Cliente</h3>
@@ -154,52 +193,69 @@ app.get('/admin', (req, res) => {
                  </form><hr>`;
         
         html += `<h3>Clientes e Configurações Atuais</h3><ul>`;
-        rows.forEach(r => {
+        result.rows.forEach(r => {
             html += `<li><b>${r.username}</b> - Rota: ${r.origin || 'N/D'} ➡️ ${r.destination || 'N/D'} (${r.departure_date || 'Sem data'})</li>`;
         });
         html += `</ul><br><a href="/logout">Terminar Sessão</a>`;
         
         res.send(html);
-    });
+    } catch (err) {
+        console.error(err);
+        res.send('Erro ao carregar painel administrativo.');
+    }
 });
 
 app.post('/admin/create-user', async (req, res) => {
     if (!req.session.user || req.session.user.role !== 'admin') return res.redirect('/login');
     const { username, password } = req.body;
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    db.run(`INSERT INTO users (username, password, role) VALUES (?, ?, 'client')`, [username, hashedPassword], (err) => {
-        if (err) {
-            return res.send('Erro ao criar utilizador. <a href="/admin">Voltar</a>');
-        }
+    
+    try {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await pool.query(`INSERT INTO users (username, password, role) VALUES ($1, $2, 'client')`, [username, hashedPassword]);
         res.redirect('/admin');
-    });
+    } catch (err) {
+        console.error(err);
+        res.send('Erro ao criar utilizador (talvez o nome já exista). <a href="/admin">Voltar</a>');
+    }
 });
 
 // --- APIS PARA O PYTHON (GITHUB ACTIONS) ---
 
-// API para buscar um cliente específico
-app.get('/api/flight-config/:username', (req, res) => {
+app.get('/api/flight-config/:username', async (req, res) => {
     const { username } = req.params;
-    db.get(`SELECT flight_configs.* FROM flight_configs 
+    try {
+        const result = await pool.query(`
+            SELECT flight_configs.* FROM flight_configs 
             JOIN users ON users.id = flight_configs.user_id 
-            WHERE users.username = ?`, [username], (err, config) => {
-        if (err || !config) {
+            WHERE users.username = $1
+        `, [username]);
+
+        const config = result.rows[0];
+        if (!config) {
             return res.status(404).json({ error: "Configuração não encontrada" });
         }
         res.json(config);
-    });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Erro interno no servidor" });
+    }
 });
 
-// API para buscar TODOS os clientes de uma vez só
-app.get('/api/flight-configs-all', (req, res) => {
-    db.all(`SELECT users.username, flight_configs.* FROM flight_configs 
-            JOIN users ON users.id = flight_configs.user_id`, (err, rows) => {
-        if (err || !rows) {
+app.get('/api/flight-configs-all', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT users.username, flight_configs.* FROM flight_configs 
+            JOIN users ON users.id = flight_configs.user_id
+        `);
+
+        if (result.rows.length === 0) {
             return res.status(404).json({ error: "Nenhuma configuração encontrada" });
         }
-        res.json(rows);
-    });
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Erro interno no servidor" });
+    }
 });
 
 app.get('/logout', (req, res) => {
