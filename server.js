@@ -55,6 +55,11 @@ function criarTabelas() {
 
 // --- ROTAS DO PAINEL WEB ---
 
+// Rota raiz para redirecionar automaticamente para o login
+app.get('/', (req, res) => {
+    res.redirect('/login');
+});
+
 app.get('/login', (req, res) => {
     res.send(`
         <h2>Login - Painel de Bots de Voos</h2>
