@@ -289,7 +289,7 @@ document.getElementById('form-criar-cliente').addEventListener('submit', async (
             sucessoDiv.innerText = `Cliente "${username}" criado com sucesso!`;
             document.getElementById('form-criar-cliente').reset();
             document.getElementById('new-client-limit').value = "3";
-            carregarClientes();
+            carregarClientes(); // <-- Atualiza a tabela na hora!
         } else {
             erroDiv.innerText = resultado.error || 'Erro ao criar cliente';
         }
