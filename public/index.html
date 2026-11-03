@@ -1,1 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Voos - Minhas Rotas</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h2, h3 { color: #333; }
+        .form-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        input {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        input[type="text"] { text-transform: uppercase; width: 130px; }
+        button {
+            padding: 10px 18px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover { background-color: #0056b3; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+            text-align: left;
+        }
+        th { background-color: #f8f9fa; }
+        .btn-delete {
+            background-color: #dc3545;
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+        .btn-delete:hover { background-color: #a71d2a; }
+    </style>
+</head>
+<body>
 
+<div class="container">
+    <h2>Painel de Monitoramento de Voos</h2>
+    <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 20px;">
+
+    <h3>Minhas Rotas Cadastradas</h3>
+    
+    <!-- Formulário para adicionar rota -->
+    <form id="form-rota" class="form-group">
+        <input type="text" id="origem" placeholder="Origem (ex: GRU)" required maxlength="4">
+        <input type="text" id="destino" placeholder="Destino (ex: MCZ)" required maxlength="4">
+        <input type="date" id="data_voo">
+        <button type="submit">Adicionar Rota</button>
+    </form>
+
+    <!-- Tabela de rotas -->
+    <table>
+        <thead>
+            <tr>
+                <th>Origem</th>
+                <th>Destino</th>
+                <th>Data do Voo</th>
+                <th>Ações</th>
+            </tr>
+        </thead>
+        <tbody id="lista-rotas-body">
+            <!-- Dados injetados via JS -->
+        </tbody>
+    </table>
+</div>
+
+<script>
+async function carregarRotas() {
+    try {
+        const resposta = await fetch('/api/rotas');
+        if (!resposta.ok) throw new Error('Erro ao carregar rotas');
+        
+        const rotas = await resposta.json();
+        const tbody = document.getElementById('lista-rotas-body');
+        tbody.innerHTML = '';
+
+        if (rotas.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #777;">Nenhuma rota cadastrada no momento.</td></tr>';
+            return;
+        }
+
+        rotas.forEach(rota => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${rota.origem}</strong></td>
+                <td><strong>${rota.destino}</strong></td>
+                <td>${rota.data_voo ? rota.data_voo.split('T')[0] : 'Qualquer data'}</td>
+                <td>
+                    <button class="btn-delete" onclick="removerRota(${rota.id})">Excluir</button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch (erro) {
+        console.error('Erro ao buscar rotas:', erro);
+    }
+}
+
+document.getElementById('form-rota').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const origem = document.getElementById('origem').value.trim();
+    const destino = document.getElementById('destino').value.trim();
+    const data_voo = document.getElementById('data_voo').value;
+
+    try {
+        const resposta = await fetch('/api/rotas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ origem, destino, data_voo: data_voo || null })
+        });
+
+        const resultado = await resposta.json();
+        if (resposta.ok) {
+            document.getElementById('form-rota').reset();
+            carregarRotas();
+        } else {
+            alert(resultado.error || 'Erro ao adicionar rota');
+        }
+    } catch (erro) {
+        console.error('Erro:', erro);
+        alert('Erro ao guardar a rota.');
+    }
+});
+
+async function removerRota(id) {
+    if (!confirm('Deseja realmente remover esta rota?')) return;
+
+    try {
+        const resposta = await fetch(`/api/rotas/${id}`, { method: 'DELETE' });
+        if (resposta.ok) {
+            carregarRotas();
+        } else {
+            alert('Erro ao apagar rota');
+        }
+    } catch (erro) {
+        console.error('Erro:', erro);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', carregarRotas);
+</script>
+
+</body>
+</html>
