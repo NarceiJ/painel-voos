@@ -18,12 +18,13 @@ async function iniciarBaseDados() {
         await pool.query('SELECT NOW()');
         console.log('Conectado à base de dados PostgreSQL com sucesso.');
 
-        // Criar tabela de utilizadores (caso não exista)
+        // Criar tabela de utilizadores com suporte a limite de rotas
         await pool.query(`
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
                 username VARCHAR(50) UNIQUE NOT NULL,
                 password VARCHAR(255) NOT NULL,
+                limite_rotas INT DEFAULT 2,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
@@ -43,7 +44,7 @@ async function iniciarBaseDados() {
         // Criar utilizador admin padrão se não existir
         const userCheck = await pool.query('SELECT * FROM users WHERE username = $1', ['admin']);
         if (userCheck.rows.length === 0) {
-            await pool.query('INSERT INTO users (username, password) VALUES ($1, $2)', ['admin', 'admin123']);
+            await pool.query('INSERT INTO users (username, password, limite_rotas) VALUES ($1, $2, $3)', ['admin', 'admin123', 50]);
             console.log('Utilizador admin criado (user: admin / pass: admin123)');
         }
     } catch (err) {
@@ -61,15 +62,15 @@ app.use(session({
     secret: 'painel-voos-secret-key',
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: false } // Defina como true se usar HTTPS estrito com proxy
+    cookie: { secure: false }
 }));
 
-// Servir ficheiros estáticos da pasta public (onde fica o index.html)
+// Servir ficheiros estáticos da pasta public
 app.use(express.static(path.join(__dirname, 'public')));
+
 
 // --- API DE AUTENTICAÇÃO ---
 
-// Login simples
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
     try {
@@ -87,14 +88,12 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// Logout
 app.post('/api/logout', (req, res) => {
     req.session.destroy(() => {
         res.json({ message: 'Sessão terminada' });
     });
 });
 
-// Verificar sessão ativa
 app.get('/api/session', (req, res) => {
     if (req.session.userId) {
         res.json({ loggedIn: true, username: req.session.username });
@@ -104,9 +103,45 @@ app.get('/api/session', (req, res) => {
 });
 
 
-// --- API DE GESTÃO DE MÚLTIPLAS ROTAS ---
+// --- API DE ADMIN: CRIAR CLIENTE ---
 
-// Listar todas as rotas do utilizador logado
+app.post('/api/admin/criar-cliente', async (req, res) => {
+    if (!req.session.userId) {
+        return res.status(401).json({ error: 'Não autorizado' });
+    }
+
+    try {
+        const adminCheck = await pool.query('SELECT username FROM users WHERE id = $1', [req.session.userId]);
+        if (adminCheck.rows.length === 0 || adminCheck.rows[0].username !== 'admin') {
+            return res.status(403).json({ error: 'Acesso negado. Apenas o administrador pode criar contas.' });
+        }
+
+        const { username, password, limite_rotas } = req.body;
+
+        if (!username || !password || !limite_rotas) {
+            return res.status(400).json({ error: 'Preencha todos os campos' });
+        }
+
+        const userExist = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+        if (userExist.rows.length > 0) {
+            return res.status(400).json({ error: 'Este nome de utilizador já existe' });
+        }
+
+        await pool.query(
+            'INSERT INTO users (username, password, limite_rotas) VALUES ($1, $2, $3)',
+            [username.trim(), password, parseInt(limite_rotas)]
+        );
+
+        res.status(201).json({ message: 'Cliente criado com sucesso!' });
+    } catch (err) {
+        console.error('Erro ao criar cliente:', err);
+        res.status(500).json({ error: 'Erro interno no servidor' });
+    }
+});
+
+
+// --- API DE GESTÃO DE ROTAS (Com validação de limite) ---
+
 app.get('/api/rotas', async (req, res) => {
     if (!req.session.userId) {
         return res.status(401).json({ error: 'Não autorizado' });
@@ -124,7 +159,6 @@ app.get('/api/rotas', async (req, res) => {
     }
 });
 
-// Adicionar uma nova rota para o utilizador logado
 app.post('/api/rotas', async (req, res) => {
     if (!req.session.userId) {
         return res.status(401).json({ error: 'Não autorizado' });
@@ -137,10 +171,28 @@ app.post('/api/rotas', async (req, res) => {
     }
 
     try {
+        // Verificar limite de rotas do utilizador
+        const userResult = await pool.query('SELECT limite_rotas FROM users WHERE id = $1', [req.session.userId]);
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Utilizador não encontrado' });
+        }
+        const limiteRotas = userResult.rows[0].limite_rotas;
+
+        // Contar rotas atuais
+        const countResult = await pool.query('SELECT COUNT(*) FROM rotas WHERE user_id = $1', [req.session.userId]);
+        const totalRotasAtuais = parseInt(countResult.rows[0].count);
+
+        if (totalRotasAtuais >= limiteRotas) {
+            return res.status(403).json({ 
+                error: `Limite atingido! O seu plano permite cadastrar no máximo ${limiteRotas} rotas.` 
+            });
+        }
+
         const result = await pool.query(
             'INSERT INTO rotas (user_id, origem, destino, data_voo) VALUES ($1, $2, $3, $4) RETURNING *',
             [req.session.userId, origem.toUpperCase(), destino.toUpperCase(), data_voo || null]
         );
+        
         res.status(201).json({ message: 'Rota adicionada com sucesso!', rota: result.rows[0] });
     } catch (err) {
         console.error('Erro ao inserir rota:', err);
@@ -148,7 +200,6 @@ app.post('/api/rotas', async (req, res) => {
     }
 });
 
-// Apagar uma rota específica do utilizador logado
 app.delete('/api/rotas/:id', async (req, res) => {
     if (!req.session.userId) {
         return res.status(401).json({ error: 'Não autorizado' });
@@ -173,7 +224,6 @@ app.delete('/api/rotas/:id', async (req, res) => {
     }
 });
 
-// Iniciar servidor
 app.listen(port, () => {
     console.log(`Servidor rodando na porta ${port}`);
 });
