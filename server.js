@@ -55,7 +55,6 @@ function criarTabelas() {
 
 // --- ROTAS DO PAINEL WEB ---
 
-// Rota raiz para redirecionar automaticamente para o login
 app.get('/', (req, res) => {
     res.redirect('/login');
 });
@@ -177,7 +176,9 @@ app.post('/admin/create-user', async (req, res) => {
     });
 });
 
-// --- API PARA O PYTHON (GITHUB ACTIONS) CONSULTAR ---
+// --- APIS PARA O PYTHON (GITHUB ACTIONS) ---
+
+// API para buscar um cliente específico
 app.get('/api/flight-config/:username', (req, res) => {
     const { username } = req.params;
     db.get(`SELECT flight_configs.* FROM flight_configs 
@@ -187,6 +188,17 @@ app.get('/api/flight-config/:username', (req, res) => {
             return res.status(404).json({ error: "Configuração não encontrada" });
         }
         res.json(config);
+    });
+});
+
+// API para buscar TODOS os clientes de uma vez só
+app.get('/api/flight-configs-all', (req, res) => {
+    db.all(`SELECT users.username, flight_configs.* FROM flight_configs 
+            JOIN users ON users.id = flight_configs.user_id`, (err, rows) => {
+        if (err || !rows) {
+            return res.status(404).json({ error: "Nenhuma configuração encontrada" });
+        }
+        res.json(rows);
     });
 });
 
