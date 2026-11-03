@@ -13,7 +13,7 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
         }
         .card {
             background: white;
@@ -21,7 +21,7 @@
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             width: 100%;
-            max-width: 600px;
+            max-width: 650px;
         }
         h2, h3 { color: #333; margin-top: 0; }
         .form-group {
@@ -30,7 +30,7 @@
             margin-bottom: 20px;
             flex-wrap: wrap;
         }
-        input {
+        input, select {
             padding: 10px;
             border: 1px solid #ccc;
             border-radius: 4px;
@@ -52,12 +52,14 @@
             border-radius: 4px;
             cursor: pointer;
             font-weight: bold;
+            width: 100%;
         }
         button:hover { background-color: #0056b3; }
         .btn-delete {
             background-color: #dc3545;
             padding: 6px 12px;
             font-size: 12px;
+            width: auto;
         }
         .btn-delete:hover { background-color: #a71d2a; }
         table {
@@ -82,9 +84,11 @@
             background-color: #6c757d;
             padding: 6px 12px;
             font-size: 12px;
+            width: auto;
         }
-        .btn-logout:hover { background-color: #5a6268; }
         .error-msg { color: #dc3545; font-size: 14px; margin-bottom: 10px; }
+        .success-msg { color: #28a745; font-size: 14px; margin-bottom: 10px; font-weight: bold; }
+        .admin-box { background: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px dashed #ccc; margin-bottom: 20px; }
     </style>
 </head>
 <body>
@@ -99,13 +103,13 @@
             <input type="text" id="username" required placeholder="Ex: admin">
             
             <label>Palavra-passe:</label>
-            <input type="password" id="password" required placeholder="Ex: admin123">
+            <input type="password" id="password" required placeholder="Ex: palavra-passe">
             
-            <button type="submit" style="width: 100%;">Entrar</button>
+            <button type="submit">Entrar</button>
         </form>
     </div>
 
-    <!-- SECÇÃO DO PAINEL DE ROTAS (Oculto por predefinição) -->
+    <!-- SECÇÃO DO PAINEL -->
     <div id="dashboard-section" class="hidden">
         <div class="header-bar">
             <div>
@@ -115,15 +119,41 @@
             <button class="btn-logout" onclick="fazerLogout()">Sair</button>
         </div>
         
+        <!-- PAINEL EXCLUSIVO DO ADMIN PARA CRIAR CLIENTES -->
+        <div id="admin-panel" class="admin-box hidden">
+            <h3>Painel Admin: Criar Conta de Cliente</h3>
+            <div id="admin-error" class="error-msg"></div>
+            <div id="admin-success" class="success-msg"></div>
+            <form id="form-criar-cliente">
+                <div style="display: flex; gap: 10px;">
+                    <div style="flex: 1;">
+                        <label>Nome do Cliente:</label>
+                        <input type="text" id="new-client-user" required placeholder="Ex: cliente1">
+                    </div>
+                    <div style="flex: 1;">
+                        <label>Palavra-passe:</label>
+                        <input type="text" id="new-client-pass" required placeholder="Ex: senha123">
+                    </div>
+                </div>
+                <label>Limite de Rotas Permitidas:</label>
+                <input type="number" id="new-client-limit" required value="3" min="1" max="50">
+                <button type="submit" style="background-color: #28a745;">Criar Conta para Cliente</button>
+            </form>
+        </div>
+
         <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 20px;">
 
-        <h3>Minhas Rotas Cadastradas</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3 style="margin: 0;">Minhas Rotas Monitoradas</h3>
+            <span id="contador-rotas" style="font-size: 13px; color: #555; font-weight: bold;"></span>
+        </div>
         
+        <!-- Formulário para adicionar rota -->
         <form id="form-rota" class="form-group">
             <input type="text" id="origem" class="input-rota" placeholder="Origem (GRU)" required maxlength="4">
             <input type="text" id="destino" class="input-rota" placeholder="Destino (MCZ)" required maxlength="4">
             <input type="date" id="data_voo" style="flex: 1; min-width: 130px; margin-bottom: 0;">
-            <button type="submit">Adicionar</button>
+            <button type="submit" style="width: auto;">Adicionar Rota</button>
         </form>
 
         <table>
@@ -143,7 +173,6 @@
 </div>
 
 <script>
-// Verificar sessão ao carregar a página
 async function verificarSessao() {
     try {
         const resposta = await fetch('/api/session');
@@ -153,6 +182,13 @@ async function verificarSessao() {
             document.getElementById('login-section').classList.add('hidden');
             document.getElementById('dashboard-section').classList.remove('hidden');
             document.getElementById('user-display').innerText = `Utilizador: ${dados.username}`;
+
+            if (dados.username === 'admin') {
+                document.getElementById('admin-panel').classList.remove('hidden');
+            } else {
+                document.getElementById('admin-panel').classList.add('hidden');
+            }
+
             carregarRotas();
         } else {
             document.getElementById('login-section').classList.remove('hidden');
@@ -163,7 +199,6 @@ async function verificarSessao() {
     }
 }
 
-// Ação de Login
 document.getElementById('form-login').addEventListener('submit', async (e) => {
     e.preventDefault();
     const username = document.getElementById('username').value.trim();
@@ -190,7 +225,38 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
     }
 });
 
-// Ação de Logout
+document.getElementById('form-criar-cliente').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = document.getElementById('new-client-user').value.trim();
+    const password = document.getElementById('new-client-pass').value.trim();
+    const limite_rotas = document.getElementById('new-client-limit').value;
+    
+    const erroDiv = document.getElementById('admin-error');
+    const sucessoDiv = document.getElementById('admin-success');
+    erroDiv.innerText = '';
+    sucessoDiv.innerText = '';
+
+    try {
+        const resposta = await fetch('/api/admin/criar-cliente', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password, limite_rotas })
+        });
+        const resultado = await resposta.json();
+
+        if (resposta.ok) {
+            sucessoDiv.innerText = `Cliente "${username}" criado com sucesso (${limite_rotas} rotas permitidas)!`;
+            document.getElementById('form-criar-cliente').reset();
+            document.getElementById('new-client-limit').value = "3";
+        } else {
+            erroDiv.innerText = resultado.error || 'Erro ao criar cliente';
+        }
+    } catch (erro) {
+        console.error('Erro:', erro);
+        erroDiv.innerText = 'Erro de conexão ao criar cliente.';
+    }
+});
+
 async function fazerLogout() {
     try {
         await fetch('/api/logout', { method: 'POST' });
@@ -200,7 +266,6 @@ async function fazerLogout() {
     }
 }
 
-// Carregar Rotas
 async function carregarRotas() {
     try {
         const resposta = await fetch('/api/rotas');
@@ -209,6 +274,8 @@ async function carregarRotas() {
         const rotas = await resposta.json();
         const tbody = document.getElementById('lista-rotas-body');
         tbody.innerHTML = '';
+
+        document.getElementById('contador-rotas').innerText = `Total: ${rotas.length} rotas`;
 
         if (rotas.length === 0) {
             tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #777;">Nenhuma rota cadastrada.</td></tr>';
@@ -232,7 +299,6 @@ async function carregarRotas() {
     }
 }
 
-// Adicionar Rota
 document.getElementById('form-rota').addEventListener('submit', async (e) => {
     e.preventDefault();
     const origem = document.getElementById('origem').value.trim();
@@ -259,7 +325,6 @@ document.getElementById('form-rota').addEventListener('submit', async (e) => {
     }
 });
 
-// Remover Rota
 async function removerRota(id) {
     if (!confirm('Deseja realmente remover esta rota?')) return;
 
@@ -275,7 +340,6 @@ async function removerRota(id) {
     }
 }
 
-// Executar verificação ao carregar a página
 document.addEventListener('DOMContentLoaded', verificarSessao);
 </script>
 
