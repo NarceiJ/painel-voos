@@ -21,7 +21,7 @@
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             width: 100%;
-            max-width: 750px;
+            max-width: 800px;
         }
         h2, h3 { color: #333; margin-top: 0; }
         .form-group {
@@ -62,6 +62,15 @@
             width: auto;
         }
         .btn-delete:hover { background-color: #a71d2a; }
+        .btn-edit {
+            background-color: #ffc107;
+            color: #333;
+            padding: 6px 12px;
+            font-size: 12px;
+            width: auto;
+            margin-right: 5px;
+        }
+        .btn-edit:hover { background-color: #e0a800; }
         table {
             width: 100%;
             border-collapse: collapse;
@@ -123,11 +132,12 @@
         
         <!-- PAINEL ADMIN -->
         <div id="admin-panel" class="admin-box hidden">
-            <h3>Gerir Clientes</h3>
+            <h3 id="admin-form-title">Criar Novo Cliente</h3>
             <div id="admin-error" class="error-msg"></div>
             <div id="admin-success" class="success-msg"></div>
             
             <form id="form-criar-cliente">
+                <input type="hidden" id="edit-client-id">
                 <div style="display: flex; gap: 10px;">
                     <div style="flex: 1;">
                         <label>Nome do Cliente:</label>
@@ -135,7 +145,7 @@
                     </div>
                     <div style="flex: 1;">
                         <label>Palavra-passe:</label>
-                        <input type="text" id="new-client-pass" required placeholder="Ex: senha123">
+                        <input type="text" id="new-client-pass" placeholder="Ex: senha123 (deixe em branco para não alterar)">
                     </div>
                 </div>
                 <div style="display: flex; gap: 10px;">
@@ -148,7 +158,8 @@
                         <input type="text" id="new-client-telegram" placeholder="Ex: 123456789" style="margin-bottom: 15px;">
                     </div>
                 </div>
-                <button type="submit" style="background-color: #28a745;">Criar Conta de Cliente</button>
+                <button type="submit" id="btn-submit-cliente" style="background-color: #28a745;">Criar Conta de Cliente</button>
+                <button type="button" id="btn-cancel-edit" class="hidden" onclick="cancelarEdicao()" style="background-color: #6c757d; margin-top: 10px;">Cancelar Edição</button>
             </form>
 
             <h4 style="margin-top: 20px; margin-bottom: 5px;">Clientes Cadastrados:</h4>
@@ -159,6 +170,7 @@
                         <th>Limite</th>
                         <th>Telegram ID</th>
                         <th>Criado em</th>
+                        <th>Ações</th>
                     </tr>
                 </thead>
                 <tbody id="lista-clientes-body"></tbody>
@@ -246,31 +258,37 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
     }
 });
 
+let clientesGlobais = [];
+
 async function carregarClientes() {
     try {
         const resposta = await fetch('/api/admin/clientes');
         const tbody = document.getElementById('lista-clientes-body');
         
         if (!resposta.ok) {
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #dc3545;">Erro ao carregar clientes.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #dc3545;">Erro ao carregar clientes.</td></tr>';
             return;
         }
 
-        const clientes = await resposta.json();
+        clientesGlobais = await resposta.json();
         tbody.innerHTML = '';
 
-        if (clientes.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #777;">Nenhum cliente cadastrado.</td></tr>';
+        if (clientesGlobais.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #777;">Nenhum cliente cadastrado.</td></tr>';
             return;
         }
 
-        clientes.forEach(c => {
+        clientesGlobais.forEach(c => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td><strong>${c.username}</strong></td>
                 <td>${c.limite_rotas}</td>
                 <td>${c.telegram_chat_id || '<span style="color: #999;">Não definido</span>'}</td>
                 <td>${c.created_at ? c.created_at.split('T')[0] : '-'}</td>
+                <td>
+                    <button class="btn-edit" onclick="prepararEdicao(${c.id})">Editar</button>
+                    <button class="btn-delete" onclick="apagarCliente(${c.id})">Excluir</button>
+                </td>
             `;
             tbody.appendChild(tr);
         });
@@ -279,8 +297,38 @@ async function carregarClientes() {
     }
 }
 
+function prepararEdicao(id) {
+    const cliente = clientesGlobais.find(c => c.id === id);
+    if (!cliente) return;
+
+    document.getElementById('edit-client-id').value = cliente.id;
+    document.getElementById('new-client-user').value = cliente.username;
+    document.getElementById('new-client-user').disabled = true; // Não deixa mudar o nome de login
+    document.getElementById('new-client-pass').value = '';
+    document.getElementById('new-client-limit').value = cliente.limite_rotas;
+    document.getElementById('new-client-telegram').value = cliente.telegram_chat_id || '';
+
+    document.getElementById('admin-form-title').innerText = `Editar Cliente: ${cliente.username}`;
+    document.getElementById('btn-submit-cliente').innerText = 'Guardar Alterações';
+    document.getElementById('btn-submit-cliente').style.backgroundColor = '#ffc107';
+    document.getElementById('btn-submit-cliente').style.color = '#333';
+    document.getElementById('btn-cancel-edit').classList.remove('hidden');
+}
+
+function cancelarEdicao() {
+    document.getElementById('form-criar-cliente').reset();
+    document.getElementById('edit-client-id').value = '';
+    document.getElementById('new-client-user').disabled = false;
+    document.getElementById('admin-form-title').innerText = 'Criar Novo Cliente';
+    document.getElementById('btn-submit-cliente').innerText = 'Criar Conta de Cliente';
+    document.getElementById('btn-submit-cliente').style.backgroundColor = '#28a745';
+    document.getElementById('btn-submit-cliente').style.color = '#fff';
+    document.getElementById('btn-cancel-edit').classList.add('hidden');
+}
+
 document.getElementById('form-criar-cliente').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const editId = document.getElementById('edit-client-id').value;
     const username = document.getElementById('new-client-user').value.trim();
     const password = document.getElementById('new-client-pass').value.trim();
     const limite_rotas = document.getElementById('new-client-limit').value;
@@ -292,25 +340,61 @@ document.getElementById('form-criar-cliente').addEventListener('submit', async (
     sucessoDiv.innerText = '';
 
     try {
-        const resposta = await fetch('/api/admin/criar-cliente', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password, limite_rotas, telegram_chat_id })
-        });
-        const resultado = await resposta.json();
+        let resposta, resultado;
 
-        if (resposta.ok) {
-            sucessoDiv.innerText = `Cliente "${username}" criado com sucesso!`;
-            document.getElementById('form-criar-cliente').reset();
-            document.getElementById('new-client-limit').value = "3";
-            carregarClientes();
+        if (editId) {
+            // EDITAR CLIENTE EXISTENTE
+            resposta = await fetch(`/api/admin/clientes/${editId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ limite_rotas, telegram_chat_id, password })
+            });
+            resultado = await resposta.json();
+
+            if (resposta.ok) {
+                sucessoDiv.innerText = `Cliente "${username}" atualizado com sucesso!`;
+                cancelarEdicao();
+                carregarClientes();
+            } else {
+                erroDiv.innerText = resultado.error || 'Erro ao atualizar cliente';
+            }
         } else {
-            erroDiv.innerText = resultado.error || 'Erro ao criar cliente';
+            // CRIAR NOVO CLIENTE
+            resposta = await fetch('/api/admin/criar-cliente', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password, limite_rotas, telegram_chat_id })
+            });
+            resultado = await resposta.json();
+
+            if (resposta.ok) {
+                sucessoDiv.innerText = `Cliente "${username}" criado com sucesso!`;
+                document.getElementById('form-criar-cliente').reset();
+                document.getElementById('new-client-limit').value = "3";
+                carregarClientes();
+            } else {
+                erroDiv.innerText = resultado.error || 'Erro ao criar cliente';
+            }
         }
     } catch (erro) {
         erroDiv.innerText = 'Erro de conexão.';
     }
 });
+
+async function apagarCliente(id) {
+    if (!confirm('Deseja realmente apagar este cliente e todas as suas rotas?')) return;
+
+    try {
+        const resposta = await fetch(`/api/admin/clientes/${id}`, { method: 'DELETE' });
+        if (resposta.ok) {
+            carregarClientes();
+        } else {
+            alert('Erro ao apagar cliente');
+        }
+    } catch (erro) {
+        console.error('Erro:', erro);
+    }
+}
 
 async function fazerLogout() {
     await fetch('/api/logout', { method: 'POST' });
