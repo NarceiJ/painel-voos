@@ -21,7 +21,7 @@
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             width: 100%;
-            max-width: 700px;
+            max-width: 750px;
         }
         h2, h3 { color: #333; margin-top: 0; }
         .form-group {
@@ -138,8 +138,16 @@
                         <input type="text" id="new-client-pass" required placeholder="Ex: senha123">
                     </div>
                 </div>
-                <label>Limite de Rotas:</label>
-                <input type="number" id="new-client-limit" required value="3" min="1" max="50">
+                <div style="display: flex; gap: 10px;">
+                    <div style="flex: 1;">
+                        <label>Limite de Rotas:</label>
+                        <input type="number" id="new-client-limit" required value="3" min="1" max="50" style="margin-bottom: 15px;">
+                    </div>
+                    <div style="flex: 1;">
+                        <label>Telegram Chat ID:</label>
+                        <input type="text" id="new-client-telegram" placeholder="Ex: 123456789" style="margin-bottom: 15px;">
+                    </div>
+                </div>
                 <button type="submit" style="background-color: #28a745;">Criar Conta de Cliente</button>
             </form>
 
@@ -148,13 +156,12 @@
                 <thead>
                     <tr>
                         <th>Utilizador</th>
-                        <th>Limite de Rotas</th>
+                        <th>Limite</th>
+                        <th>Telegram ID</th>
                         <th>Criado em</th>
                     </tr>
                 </thead>
-                <tbody id="lista-clientes-body">
-                    <!-- Preenchido via JS -->
-                </tbody>
+                <tbody id="lista-clientes-body"></tbody>
             </table>
         </div>
 
@@ -245,7 +252,7 @@ async function carregarClientes() {
         const tbody = document.getElementById('lista-clientes-body');
         
         if (!resposta.ok) {
-            tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #dc3545;">Erro ao carregar clientes.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #dc3545;">Erro ao carregar clientes.</td></tr>';
             return;
         }
 
@@ -253,7 +260,7 @@ async function carregarClientes() {
         tbody.innerHTML = '';
 
         if (clientes.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #777;">Nenhum cliente cadastrado.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #777;">Nenhum cliente cadastrado.</td></tr>';
             return;
         }
 
@@ -261,7 +268,8 @@ async function carregarClientes() {
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td><strong>${c.username}</strong></td>
-                <td>${c.limite_rotas} rotas</td>
+                <td>${c.limite_rotas}</td>
+                <td>${c.telegram_chat_id || '<span style="color: #999;">Não definido</span>'}</td>
                 <td>${c.created_at ? c.created_at.split('T')[0] : '-'}</td>
             `;
             tbody.appendChild(tr);
@@ -276,6 +284,7 @@ document.getElementById('form-criar-cliente').addEventListener('submit', async (
     const username = document.getElementById('new-client-user').value.trim();
     const password = document.getElementById('new-client-pass').value.trim();
     const limite_rotas = document.getElementById('new-client-limit').value;
+    const telegram_chat_id = document.getElementById('new-client-telegram').value.trim();
     
     const erroDiv = document.getElementById('admin-error');
     const sucessoDiv = document.getElementById('admin-success');
@@ -286,7 +295,7 @@ document.getElementById('form-criar-cliente').addEventListener('submit', async (
         const resposta = await fetch('/api/admin/criar-cliente', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password, limite_rotas })
+            body: JSON.stringify({ username, password, limite_rotas, telegram_chat_id })
         });
         const resultado = await resposta.json();
 
