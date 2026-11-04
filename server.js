@@ -16,7 +16,6 @@ async function iniciarBaseDados() {
         await pool.query('SELECT NOW()');
         console.log('Conectado à base de dados PostgreSQL com sucesso.');
 
-        // Criar tabela de utilizadores básica se não existir
         await pool.query(`
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
@@ -25,11 +24,9 @@ async function iniciarBaseDados() {
             )
         `);
 
-        // Garantir que as colunas novas existem em tabelas já criadas anteriormente
         await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS limite_rotas INT DEFAULT 2`);
         await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
 
-        // Criar tabela de rotas
         await pool.query(`
             CREATE TABLE IF NOT EXISTS rotas (
                 id SERIAL PRIMARY KEY,
@@ -41,7 +38,6 @@ async function iniciarBaseDados() {
             )
         `);
 
-        // Criar utilizador admin padrão se não existir
         const userCheck = await pool.query('SELECT * FROM users WHERE username = $1', ['admin']);
         if (userCheck.rows.length === 0) {
             await pool.query('INSERT INTO users (username, password, limite_rotas) VALUES ($1, $2, $3)', ['admin', 'admin123', 50]);
@@ -96,6 +92,22 @@ app.get('/api/session', (req, res) => {
         res.json({ loggedIn: true, username: req.session.username });
     } else {
         res.status(401).json({ loggedIn: false });
+    }
+});
+
+// --- API PARA O BOT DO PYTHON LER TODAS AS ROTAS ---
+app.get('/api/bot/rotas', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT u.username, r.origem, r.destino, r.data_voo 
+            FROM rotas r 
+            JOIN users u ON r.user_id = u.id 
+            ORDER BY r.id DESC
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Erro ao buscar rotas para o bot:', err);
+        res.status(500).json({ error: 'Erro interno no servidor' });
     }
 });
 
