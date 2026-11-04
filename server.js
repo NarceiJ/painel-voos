@@ -24,7 +24,9 @@ async function iniciarBaseDados() {
             )
         `);
 
+        // Garantir todas as colunas necessárias na tabela users
         await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS limite_rotas INT DEFAULT 2`);
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100)`);
         await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
 
         await pool.query(`
@@ -95,11 +97,11 @@ app.get('/api/session', (req, res) => {
     }
 });
 
-// --- API PARA O BOT DO PYTHON LER TODAS AS ROTAS ---
+// --- API PARA O BOT DO PYTHON (Inclui telegram_chat_id) ---
 app.get('/api/bot/rotas', async (req, res) => {
     try {
         const result = await pool.query(`
-            SELECT u.username, r.origem, r.destino, r.data_voo 
+            SELECT u.username, u.telegram_chat_id, r.origem, r.destino, r.data_voo 
             FROM rotas r 
             JOIN users u ON r.user_id = u.id 
             ORDER BY r.id DESC
@@ -121,9 +123,9 @@ app.post('/api/admin/criar-cliente', async (req, res) => {
             return res.status(403).json({ error: 'Acesso negado.' });
         }
 
-        const { username, password, limite_rotas } = req.body;
+        const { username, password, limite_rotas, telegram_chat_id } = req.body;
         if (!username || !password || !limite_rotas) {
-            return res.status(400).json({ error: 'Preencha todos os campos' });
+            return res.status(400).json({ error: 'Preencha todos os campos obrigatórios' });
         }
 
         const cleanUser = username.trim().toLowerCase();
@@ -133,8 +135,8 @@ app.post('/api/admin/criar-cliente', async (req, res) => {
         }
 
         await pool.query(
-            'INSERT INTO users (username, password, limite_rotas) VALUES ($1, $2, $3)',
-            [cleanUser, password, parseInt(limite_rotas)]
+            'INSERT INTO users (username, password, limite_rotas, telegram_chat_id) VALUES ($1, $2, $3, $4)',
+            [cleanUser, password, parseInt(limite_rotas), telegram_chat_id || null]
         );
 
         res.status(201).json({ message: 'Cliente criado com sucesso!' });
@@ -153,7 +155,7 @@ app.get('/api/admin/clientes', async (req, res) => {
             return res.status(403).json({ error: 'Acesso negado.' });
         }
 
-        const result = await pool.query('SELECT id, username, limite_rotas, created_at FROM users WHERE username != $1 ORDER BY id DESC', ['admin']);
+        const result = await pool.query('SELECT id, username, limite_rotas, telegram_chat_id, created_at FROM users WHERE username != $1 ORDER BY id DESC', ['admin']);
         res.json(result.rows);
     } catch (err) {
         console.error('Erro ao listar clientes:', err);
