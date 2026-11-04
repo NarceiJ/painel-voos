@@ -24,7 +24,6 @@ async function iniciarBaseDados() {
             )
         `);
 
-        // Garantir todas as colunas necessárias na tabela users
         await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS limite_rotas INT DEFAULT 2`);
         await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100)`);
         await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
@@ -97,7 +96,7 @@ app.get('/api/session', (req, res) => {
     }
 });
 
-// --- API PARA O BOT DO PYTHON (Inclui telegram_chat_id) ---
+// --- API PARA O BOT DO PYTHON ---
 app.get('/api/bot/rotas', async (req, res) => {
     try {
         const result = await pool.query(`
@@ -113,7 +112,7 @@ app.get('/api/bot/rotas', async (req, res) => {
     }
 });
 
-// --- ADMIN: CRIAR E LISTAR CLIENTES ---
+// --- ADMIN: CRIAR, LISTAR, EDITAR E APAGAR CLIENTES ---
 app.post('/api/admin/criar-cliente', async (req, res) => {
     if (!req.session.userId) return res.status(401).json({ error: 'Não autorizado' });
 
@@ -160,6 +159,56 @@ app.get('/api/admin/clientes', async (req, res) => {
     } catch (err) {
         console.error('Erro ao listar clientes:', err);
         res.status(500).json({ error: 'Erro interno' });
+    }
+});
+
+// Atualizar cliente (Editar limite, telegram_chat_id ou password)
+app.put('/api/admin/clientes/:id', async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: 'Não autorizado' });
+
+    try {
+        const adminCheck = await pool.query('SELECT username FROM users WHERE id = $1', [req.session.userId]);
+        if (adminCheck.rows.length === 0 || adminCheck.rows[0].username !== 'admin') {
+            return res.status(403).json({ error: 'Acesso negado.' });
+        }
+
+        const clienteId = req.params.id;
+        const { limite_rotas, telegram_chat_id, password } = req.body;
+
+        if (password && password.trim() !== "") {
+            await pool.query(
+                'UPDATE users SET limite_rotas = $1, telegram_chat_id = $2, password = $3 WHERE id = $4',
+                [parseInt(limite_rotas), telegram_chat_id || null, password.trim(), clienteId]
+            );
+        } else {
+            await pool.query(
+                'UPDATE users SET limite_rotas = $1, telegram_chat_id = $2 WHERE id = $3',
+                [parseInt(limite_rotas), telegram_chat_id || null, clienteId]
+            );
+        }
+
+        res.json({ message: 'Cliente atualizado com sucesso!' });
+    } catch (err) {
+        console.error('Erro ao atualizar cliente:', err);
+        res.status(500).json({ error: 'Erro interno no servidor' });
+    }
+});
+
+// Apagar cliente
+app.delete('/api/admin/clientes/:id', async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: 'Não autorizado' });
+
+    try {
+        const adminCheck = await pool.query('SELECT username FROM users WHERE id = $1', [req.session.userId]);
+        if (adminCheck.rows.length === 0 || adminCheck.rows[0].username !== 'admin') {
+            return res.status(403).json({ error: 'Acesso negado.' });
+        }
+
+        await pool.query('DELETE FROM users WHERE id = $1', [req.params.id]);
+        res.json({ message: 'Cliente removido com sucesso!' });
+    } catch (err) {
+        console.error('Erro ao apagar cliente:', err);
+        res.status(500).json({ error: 'Erro interno no servidor' });
     }
 });
 
